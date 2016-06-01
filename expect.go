@@ -3,7 +3,6 @@ package expect
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -217,7 +216,6 @@ func (e *ExpectSubproc) Expect(searchStr string) error {
 				strIndex += 1
 				if strIndex == num {
 					unreadIndex := chunkIndex + strIndex - offset
-					fmt.Printf("%v:%v\n", []byte(searchStr), chunk[:unreadIndex])
 					if unreadIndex+1 < n {
 						e.buf.unread(chunk[unreadIndex:n])
 					}
