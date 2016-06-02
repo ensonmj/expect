@@ -27,13 +27,12 @@ func (b *buffer) read(chunk []byte) (int, error) {
 		}
 		nread = n
 	}
-	fn, err := b.file.Read(chunk[nread:])
+	fn, err := b.file.Read(chunk[nread:]) // this may be blocked
 	if err != nil {
 		if e, ok := err.(*os.PathError); ok && e.Err == syscall.EIO {
-			// we can safely ignore this error, because it's just the PTY telling
-			// us that it closed all good
+			// It's just the PTY telling us that it closed all good
 			// See: https://github.com/buildbox/agent/pull/34#issuecomment-46080419
-			err = nil
+			err = io.EOF
 		}
 	}
 	// fmt.Printf("\x1b[34;1m|>%s<|\x1b[0m\r\n", string(chunk[nread:fn+nread]))
@@ -146,6 +145,7 @@ func (e *ExpectSubproc) ReadUntil(delim byte) ([]byte, error) {
 		n, err := e.buf.read(chunk)
 		for i := 0; i < n; i++ {
 			if chunk[i] == delim {
+				// if len(chunk) > i+1 {
 				if i+1 < n {
 					e.buf.unread(chunk[i+1 : n])
 				}
@@ -207,16 +207,14 @@ func (e *ExpectSubproc) Expect(searchStr string) error {
 	strIndex := 0
 	for {
 		n, err := e.buf.read(chunk)
-		if err != nil {
-			return err
-		}
 		offset := chunkIndex + strIndex
 		for chunkIndex+strIndex-offset < n {
 			if searchStr[strIndex] == chunk[chunkIndex+strIndex-offset] {
 				strIndex += 1
 				if strIndex == num {
 					unreadIndex := chunkIndex + strIndex - offset
-					if unreadIndex+1 < n {
+					// if len(chunk) > unreadIndex {
+					if unreadIndex < n {
 						e.buf.unread(chunk[unreadIndex:n])
 					}
 					return nil
@@ -229,6 +227,9 @@ func (e *ExpectSubproc) Expect(searchStr string) error {
 					strIndex = 0
 				}
 			}
+		}
+		if err != nil {
+			return err
 		}
 	}
 }

@@ -2,6 +2,7 @@ package expect
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 )
@@ -12,10 +13,9 @@ func TestHelloWorld(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = child.Expect("Hello World")
-	if err != nil {
+	if err != nil && err != io.EOF {
 		t.Fatal(err)
 	}
-	child.Wait()
 }
 
 func TestReadLine(t *testing.T) {
@@ -34,7 +34,7 @@ func TestReadLine(t *testing.T) {
 	}
 	for _, test := range tests {
 		str, err := child.ReadLine()
-		if err != nil {
+		if err != nil && err != io.EOF {
 			t.Fatal(err)
 		}
 		if str != test.data {
@@ -43,7 +43,6 @@ func TestReadLine(t *testing.T) {
 			t.Logf("Expected %v", test.data)
 		}
 	}
-	child.Wait()
 }
 
 func TestExpect(t *testing.T) {
