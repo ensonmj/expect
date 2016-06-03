@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"syscall"
+	"unicode/utf8"
 
 	shell "github.com/kballard/go-shellquote"
 	"github.com/kr/pty"
@@ -65,6 +67,38 @@ func (b *buffer) unread(chunk []byte) {
 	d = append(d, b.cache.Bytes()...)
 	b.cache.Reset()
 	b.cache.Write(d)
+}
+
+func (b *buffer) ReadRune() (rune, int, error) {
+	l := b.cache.Len()
+
+	chunk := make([]byte, utf8.UTFMax)
+	if l > 0 {
+		n, err := b.cache.Read(chunk)
+		if err != nil {
+			return 0, 0, err
+		}
+		if utf8.FullRune(chunk[:n]) {
+			r, rL := utf8.DecodeRune(chunk)
+			if n > rL {
+				b.unread(chunk[rL:n])
+			}
+			return r, rL, nil
+		}
+	}
+	// else add bytes from the file, then try that
+	for l < utf8.UTFMax {
+		fn, err := b.file.Read(chunk[l : l+1])
+		if err != nil {
+			return 0, 0, err
+		}
+		l = l + fn
+		if utf8.FullRune(chunk[:l]) {
+			r, rL := utf8.DecodeRune(chunk)
+			return r, rL, nil
+		}
+	}
+	return 0, 0, errors.New("File is not a valid UTF=8 encoding")
 }
 
 type ExpectSubproc struct {
@@ -259,4 +293,9 @@ func buildKMPTable(searchStr string) []int {
 	}
 
 	return table
+}
+
+// ExpectMatch checks whether a textual regular expression matches happened
+func (e *ExpectSubproc) ExpectMatch(regex string) (bool, error) {
+	return regexp.MatchReader(regex, e.buf)
 }
