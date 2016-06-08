@@ -3,6 +3,7 @@ package expect
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -17,13 +18,17 @@ import (
 type buffer struct {
 	file  *os.File
 	cache bytes.Buffer
+	debug bool
 }
 
 func (b *buffer) read(chunk []byte) (int, error) {
 	nread := 0
 	if b.cache.Len() > 0 {
 		n, _ := b.cache.Read(chunk)
-		// fmt.Printf("\x1b[36;1mREAD:|>%s<|\x1b[0m\r\n", string(chunk[:n]))
+		if b.debug {
+			fmt.Printf("\x1b[36;1mREAD:|>%s<|\x1b[0m\r\n", string(chunk[:n]))
+			fmt.Printf("\x1b[36;1mREAD:|>%v<|\x1b[0m\r\n", chunk[:n])
+		}
 		if n == len(chunk) {
 			return n, nil
 		}
@@ -37,17 +42,19 @@ func (b *buffer) read(chunk []byte) (int, error) {
 			err = io.EOF
 		}
 	}
-	// fmt.Printf("\x1b[34;1m|>%s<|\x1b[0m\r\n", string(chunk[nread:fn+nread]))
-	// fmt.Printf("\x1b[34;1m|>%v<|\x1b[0m\r\n", chunk[nread:fn+nread])
-	// f, err := os.OpenFile("/tmp/expect_stream_data",
-	// 	os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer f.Close()
-	// if _, err = f.WriteString(string(chunk[nread : fn+nread])); err != nil {
-	// 	panic(err)
-	// }
+	if b.debug {
+		fmt.Printf("\x1b[34;1m|>%s<|\x1b[0m\r\n", string(chunk[nread:fn+nread]))
+		fmt.Printf("\x1b[34;1m|>%v<|\x1b[0m\r\n", chunk[nread:fn+nread])
+		// f, err := os.OpenFile("/tmp/expect_stream_data",
+		// 	os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		// if err != nil {
+		// 	panic(err)
+		// }
+		// defer f.Close()
+		// if _, err = f.WriteString(string(chunk[nread : fn+nread])); err != nil {
+		// 	panic(err)
+		// }
+	}
 	return fn + nread, err
 }
 
@@ -56,7 +63,10 @@ func (b *buffer) unread(chunk []byte) {
 		return
 	}
 
-	// fmt.Printf("\x1b[35;1mUNREAD:|>%s<|\x1b[0m\r\n", string(chunk))
+	if b.debug {
+		fmt.Printf("\x1b[35;1mUNREAD:|>%s<|\x1b[0m\r\n", string(chunk))
+		fmt.Printf("\x1b[35;1mUNREAD:|>%v<|\x1b[0m\r\n", chunk)
+	}
 	if b.cache.Len() == 0 {
 		b.cache.Write(chunk)
 		return
@@ -135,6 +145,10 @@ func Spawn(command string) (*ExpectSubproc, error) {
 	proc.buf.file = f
 
 	return proc, nil
+}
+
+func (e *ExpectSubproc) Debug(open bool) {
+	e.buf.debug = open
 }
 
 func (e *ExpectSubproc) Close() error {
