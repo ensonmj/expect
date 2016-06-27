@@ -155,6 +155,10 @@ func (e *ExpectSubproc) Wait() error {
 }
 
 func (e *ExpectSubproc) Interact() {
+	if oldState, err := makeRaw(uintptr(syscall.Stdin)); err != nil {
+		defer restore(uintptr(syscall.Stdin), oldState)
+	}
+
 	defer e.cmd.Wait()
 	io.Copy(os.Stdout, &e.buf.cache)
 	go io.Copy(os.Stdout, e.buf.file)
@@ -335,4 +339,29 @@ func (e *ExpectSubproc) SetWinsize(height, width uint16) error {
 		return errno
 	}
 	return nil
+}
+
+func makeRaw(fd uintptr) (*syscall.Termios, error) {
+	var oldState syscall.Termios
+	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, fd, syscall.TCGETS,
+		uintptr(unsafe.Pointer(&oldState)), 0, 0, 0); err != 0 {
+		return nil, err
+	}
+
+	newState := oldState
+	newState.Iflag &^= syscall.ISTRIP | syscall.INLCR | syscall.ICRNL | syscall.IGNCR | syscall.IXON | syscall.IXOFF
+	newState.Lflag &^= syscall.ECHO | syscall.ICANON | syscall.ISIG
+
+	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, fd, syscall.TCSETS,
+		uintptr(unsafe.Pointer(&newState)), 0, 0, 0); err != 0 {
+		return nil, err
+	}
+
+	return &oldState, nil
+}
+
+func restore(fd uintptr, state *syscall.Termios) error {
+	_, _, err := syscall.Syscall6(syscall.SYS_IOCTL, fd, syscall.TCSETS,
+		uintptr(unsafe.Pointer(&state)), 0, 0, 0)
+	return err
 }
