@@ -84,3 +84,33 @@ func TestBiChannel(t *testing.T) {
 	child.Close()
 	child.Wait()
 }
+
+func TestExpectMulti(t *testing.T) {
+	child, err := Spawn("echo \"expect$tail\"")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output := "fail"
+	pairs := []ExpectPair{
+		{"expect", func() error {
+			output = "success"
+			return nil
+		}},
+		{"$", nil},
+		{"", nil},
+	}
+	child.ExpectMulti(pairs)
+	if output != "success" {
+		t.Errorf("Expected 'success', but got '%v'", output)
+	} else {
+		t.Log("Expected 'success'")
+	}
+
+	str, err := child.ReadLine()
+	if str != "$tail\r\n" {
+		t.Fatalf("Expected 'tail', but got '%v'", str)
+	} else {
+		t.Log("Expected 'tail'")
+	}
+}

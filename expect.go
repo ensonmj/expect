@@ -1,7 +1,6 @@
 package expect
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -9,88 +8,11 @@ import (
 	"os/exec"
 	"regexp"
 	"syscall"
-	"unicode/utf8"
 	"unsafe"
 
 	shell "github.com/kballard/go-shellquote"
 	"github.com/kr/pty"
 )
-
-type buffer struct {
-	file  *os.File
-	cache bytes.Buffer
-	debug bool
-}
-
-func (b *buffer) read(chunk []byte) (int, error) {
-	if b.cache.Len() > 0 {
-		n, _ := b.cache.Read(chunk)
-		if b.debug {
-			fmt.Printf("\x1b[36;1mREAD:|>%s<|\x1b[0m\r\n", string(chunk[:n]))
-			fmt.Printf("\x1b[36;1mREAD:|>%v<|\x1b[0m\r\n", chunk[:n])
-		}
-		return n, nil
-	}
-
-	n, err := b.file.Read(chunk) // this may be blocked
-	if err != nil {
-		if e, ok := err.(*os.PathError); ok && e.Err == syscall.EIO {
-			// It's just the PTY telling us that it closed all good
-			// See: https://github.com/buildbox/agent/pull/34#issuecomment-46080419
-			err = io.EOF
-		}
-	}
-	if b.debug {
-		fmt.Printf("\x1b[34;1m|>%s<|\x1b[0m\r\n", string(chunk[:n]))
-		fmt.Printf("\x1b[34;1m|>%v<|\x1b[0m\r\n", chunk[:n])
-		f, err := os.OpenFile("/tmp/expect_stream_data",
-			os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-		if _, err = f.WriteString(string(chunk[:n])); err != nil {
-			panic(err)
-		}
-	}
-	return n, err
-}
-
-func (b *buffer) unread(chunk []byte) {
-	if len(chunk) == 0 {
-		return
-	}
-
-	if b.debug {
-		fmt.Printf("\x1b[35;1mUNREAD:|>%s<|\x1b[0m\r\n", string(chunk))
-		fmt.Printf("\x1b[35;1mUNREAD:|>%v<|\x1b[0m\r\n", chunk)
-	}
-	if b.cache.Len() == 0 {
-		b.cache.Write(chunk)
-		return
-	}
-
-	d := make([]byte, 0, len(chunk)+b.cache.Len())
-	d = append(d, chunk...)
-	d = append(d, b.cache.Bytes()...)
-	b.cache.Reset()
-	b.cache.Write(d)
-}
-
-func (b *buffer) ReadRune() (rune, int, error) {
-	chunk := make([]byte, utf8.UTFMax)
-	for n := 0; n < utf8.UTFMax; {
-		n, err := b.read(chunk[n:])
-		if utf8.FullRune(chunk[:n]) {
-			r, rL := utf8.DecodeRune(chunk)
-			if n > rL {
-				b.unread(chunk[rL:n])
-			}
-			return r, rL, err
-		}
-	}
-	return 0, 0, errors.New("file is not a valid UTF=8 encoding")
-}
 
 type ExpectSubproc struct {
 	cmd *exec.Cmd
@@ -275,6 +197,73 @@ func (e *ExpectSubproc) Expect(searchStr string) error {
 	}
 }
 
+type ExpectPair struct {
+	SearchStr string
+	Action    func() error
+}
+
+func (e *ExpectSubproc) ExpectMulti(pairs []ExpectPair) error {
+	var validPairs []ExpectPair
+	maxLen := 0
+	for _, pair := range pairs {
+		num := len(pair.SearchStr)
+		if num > 0 {
+			// SearchStr must be not empty, but Action can be nil
+			validPairs = append(validPairs, pair)
+			if num > maxLen {
+				maxLen = num
+			}
+		}
+	}
+	chunk := make([]byte, maxLen*2)
+
+	validNum := len(validPairs)
+	tables := make([][]int, validNum)
+	chunkIndexs := make([]int, validNum)
+	strIndexs := make([]int, validNum)
+
+	for {
+		n, err := e.buf.read(chunk)
+
+		for i, pair := range validPairs {
+			searchStr := pair.SearchStr
+			num := len(pair.SearchStr)
+			tables[i] = buildKMPTable(searchStr)
+			chunkIndexs[i] = 0
+			strIndexs[i] = 0
+			for {
+				// n, err := e.buf.read(chunk)
+				offset := chunkIndexs[i] + strIndexs[i]
+				for chunkIndexs[i]+strIndexs[i]-offset < n {
+					if searchStr[strIndexs[i]] == chunk[chunkIndexs[i]+strIndexs[i]-offset] {
+						strIndexs[i] += 1
+						if strIndexs[i] == num {
+							unreadIndex := chunkIndexs[i] + strIndexs[i] - offset
+							if unreadIndex < n {
+								e.buf.unread(chunk[unreadIndex:n])
+							}
+							if pair.Action != nil {
+								return pair.Action()
+							}
+							return nil
+						}
+					} else {
+						chunkIndexs[i] += strIndexs[i] - tables[i][strIndexs[i]]
+						if tables[i][strIndexs[i]] > -1 {
+							strIndexs[i] = tables[i][strIndexs[i]]
+						} else {
+							strIndexs[i] = 0
+						}
+					}
+				}
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+}
+
 func buildKMPTable(searchStr string) []int {
 	length := len(searchStr)
 	if length < 2 {
@@ -306,6 +295,21 @@ func buildKMPTable(searchStr string) []int {
 func (e *ExpectSubproc) ExpectMatch(regex string) (bool, error) {
 	return regexp.MatchReader(regex, e.buf)
 }
+
+// ExpectFind returns a slice holding
+// func (e *ExpectSubproc) ExpectFind(regex string) ([]string, string, error) {
+// 	re, err := regexp.Compile(regex)
+// 	if err != nil {
+// 		return nil, "", err
+// 	}
+// 	pairs := re.FindReaderSubmatchIndex(e.buf)
+// 	l := len(pairs)
+// 	numPairs := l / 2
+// 	result := make([]string, numPairs)
+// 	for i := 0; i < numPairs; i++ {
+// 		result[i] = string
+// 	}
+// }
 
 func (e *ExpectSubproc) Debug(open bool) {
 	e.buf.debug = open
