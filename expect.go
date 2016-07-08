@@ -15,8 +15,9 @@ import (
 )
 
 type ExpectSubproc struct {
-	cmd *exec.Cmd
-	buf *buffer
+	cmd      *exec.Cmd
+	buf      *buffer
+	stdinBuf *buffer
 }
 
 func Command(cmd string) (*ExpectSubproc, error) {
@@ -40,6 +41,7 @@ func Command(cmd string) (*ExpectSubproc, error) {
 		proc.cmd = exec.Command(path)
 	}
 	proc.buf = new(buffer)
+	proc.stdinBuf = &buffer{file: os.Stdin}
 
 	return proc, nil
 }
@@ -91,8 +93,17 @@ func (e *ExpectSubproc) SendLine(cmd string) error {
 	return e.Send(cmd + "\r\n")
 }
 
+func (e *ExpectSubproc) SendLineUser(cmd string) error {
+	return e.SendUser(cmd + "\r\n")
+}
+
 func (e *ExpectSubproc) Send(cmd string) error {
 	_, err := io.WriteString(e.buf.file, cmd)
+	return err
+}
+
+func (e *ExpectSubproc) SendUser(cmd string) error {
+	_, err := io.WriteString(os.Stdout, cmd)
 	return err
 }
 
@@ -101,16 +112,30 @@ func (e *ExpectSubproc) ReadLine() (string, error) {
 	return string(str), err
 }
 
+func (e *ExpectSubproc) ReadLineUser() (string, error) {
+	str, err := e.ReadUntilUser('\n')
+	return string(str), err
+}
+
 func (e *ExpectSubproc) ReadUntil(delim byte) ([]byte, error) {
+	return doReadUnitl(delim, e.buf)
+}
+
+// ReadUnitlUser read content from stdin
+func (e *ExpectSubproc) ReadUntilUser(delim byte) ([]byte, error) {
+	return doReadUnitl(delim, e.stdinBuf)
+}
+
+func doReadUnitl(delim byte, buf *buffer) ([]byte, error) {
 	all := make([]byte, 0, 1024)
 	chunk := make([]byte, 128)
 	for {
-		n, err := e.buf.read(chunk)
+		n, err := buf.read(chunk)
 		for i := 0; i < n; i++ {
 			if chunk[i] == delim {
 				// if len(chunk) > i+1 {
 				if i+1 < n {
-					e.buf.unread(chunk[i+1 : n])
+					buf.unread(chunk[i+1 : n])
 				}
 				all = append(all, chunk[:i+1]...)
 				return all, err
@@ -159,6 +184,15 @@ func (e *ExpectSubproc) AsyncInteractChannels() (chan<- string, <-chan string) {
 }
 
 func (e *ExpectSubproc) Expect(searchStr string) error {
+	return doExpect(searchStr, e.buf)
+}
+
+// ExpectUser read content from stdin and test match
+func (e *ExpectSubproc) ExpectUser(searchStr string) error {
+	return doExpect(searchStr, e.stdinBuf)
+}
+
+func doExpect(searchStr string, buf *buffer) error {
 	num := len(searchStr)
 	if num == 0 {
 		return errors.New("search string is empty")
@@ -169,7 +203,7 @@ func (e *ExpectSubproc) Expect(searchStr string) error {
 	chunkIndex := 0
 	strIndex := 0
 	for {
-		n, err := e.buf.read(chunk)
+		n, err := buf.read(chunk)
 		offset := chunkIndex + strIndex
 		for chunkIndex+strIndex-offset < n {
 			if searchStr[strIndex] == chunk[chunkIndex+strIndex-offset] {
@@ -178,7 +212,7 @@ func (e *ExpectSubproc) Expect(searchStr string) error {
 					unreadIndex := chunkIndex + strIndex - offset
 					// if len(chunk) > unreadIndex {
 					if unreadIndex < n {
-						e.buf.unread(chunk[unreadIndex:n])
+						buf.unread(chunk[unreadIndex:n])
 					}
 					return nil
 				}
@@ -203,6 +237,15 @@ type ExpectPair struct {
 }
 
 func (e *ExpectSubproc) ExpectMulti(pairs []ExpectPair) error {
+	return doExpectMulti(pairs, e.buf)
+}
+
+// ExpectMultiUser read content from stdin and test match
+func (e *ExpectSubproc) ExpectMultiUser(pairs []ExpectPair) error {
+	return doExpectMulti(pairs, e.stdinBuf)
+}
+
+func doExpectMulti(pairs []ExpectPair, buf *buffer) error {
 	var validPairs []ExpectPair
 	maxLen := 0
 	for _, pair := range pairs {
@@ -223,7 +266,7 @@ func (e *ExpectSubproc) ExpectMulti(pairs []ExpectPair) error {
 	strIndexs := make([]int, validNum)
 
 	for {
-		n, err := e.buf.read(chunk)
+		n, err := buf.read(chunk)
 
 		for i, pair := range validPairs {
 			searchStr := pair.SearchStr
@@ -232,7 +275,6 @@ func (e *ExpectSubproc) ExpectMulti(pairs []ExpectPair) error {
 			chunkIndexs[i] = 0
 			strIndexs[i] = 0
 			for {
-				// n, err := e.buf.read(chunk)
 				offset := chunkIndexs[i] + strIndexs[i]
 				for chunkIndexs[i]+strIndexs[i]-offset < n {
 					if searchStr[strIndexs[i]] == chunk[chunkIndexs[i]+strIndexs[i]-offset] {
@@ -240,7 +282,7 @@ func (e *ExpectSubproc) ExpectMulti(pairs []ExpectPair) error {
 						if strIndexs[i] == num {
 							unreadIndex := chunkIndexs[i] + strIndexs[i] - offset
 							if unreadIndex < n {
-								e.buf.unread(chunk[unreadIndex:n])
+								buf.unread(chunk[unreadIndex:n])
 							}
 							if pair.Action != nil {
 								return pair.Action()

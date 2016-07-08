@@ -98,7 +98,7 @@ func TestExpectMulti(t *testing.T) {
 			return nil
 		}},
 		{"$", nil},
-		{"", nil},
+		{SearchStr: ""},
 	}
 	child.ExpectMulti(pairs)
 	if output != "success" {
