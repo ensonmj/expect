@@ -1,9 +1,7 @@
 package expect
 
 import (
-	"fmt"
 	"io"
-	"strings"
 	"testing"
 )
 
@@ -59,32 +57,6 @@ func TestExpect(t *testing.T) {
 	}
 }
 
-func TestBiChannel(t *testing.T) {
-	child, err := Spawn("cat")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sender, receiver := child.AsyncInteractChannels()
-	wait := func(str string) {
-		for {
-			msg, ok := <-receiver
-			if !ok {
-				return
-			}
-			if strings.Contains(msg, str) {
-				return
-			}
-		}
-	}
-	endlChar := fmt.Sprintln("")
-	sender <- fmt.Sprintf("echo%v", endlChar)
-	wait("echo")
-	sender <- fmt.Sprintf("echo2%v", endlChar)
-	wait("echo2")
-	child.Close()
-	child.Wait()
-}
-
 func TestExpectMulti(t *testing.T) {
 	child, err := Spawn("echo \"expect$tail\"")
 	if err != nil {
@@ -93,7 +65,7 @@ func TestExpectMulti(t *testing.T) {
 
 	output := "fail"
 	pairs := []ExpectPair{
-		{"expect", func() error {
+		{"expect", func(_ []byte) error {
 			output = "success"
 			return nil
 		}},

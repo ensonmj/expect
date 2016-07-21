@@ -1,6 +1,7 @@
 package expect
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -149,40 +150,6 @@ func doReadUnitl(delim byte, buf *buffer) ([]byte, error) {
 	}
 }
 
-func (e *ExpectSubproc) AsyncInteractChannels() (chan<- string, <-chan string) {
-	send := make(chan string)
-	receive := make(chan string)
-
-	go func() {
-		for {
-			str, err := e.ReadLine()
-			if err != nil {
-				close(receive)
-				return
-			}
-			receive <- str
-		}
-	}()
-
-	go func() {
-		for {
-			select {
-			case sendCmd, ok := <-send:
-				if !ok {
-					return
-				}
-				err := e.Send(sendCmd)
-				if err != nil {
-					receive <- "expect inner err: " + err.Error()
-					return
-				}
-			}
-		}
-	}()
-
-	return send, receive
-}
-
 func (e *ExpectSubproc) Expect(searchStr string) error {
 	return doExpect(searchStr, e.buf)
 }
@@ -233,7 +200,7 @@ func doExpect(searchStr string, buf *buffer) error {
 
 type ExpectPair struct {
 	SearchStr string
-	Action    func() error
+	Action    func(data []byte) error
 }
 
 func (e *ExpectSubproc) ExpectMulti(pairs []ExpectPair) error {
@@ -246,13 +213,22 @@ func (e *ExpectSubproc) ExpectMultiUser(pairs []ExpectPair) error {
 }
 
 func doExpectMulti(pairs []ExpectPair, buf *buffer) error {
+	var cache bytes.Buffer
 	var validPairs []ExpectPair
+	var tables [][]int
+	var chunkIndexs []int
+	var strIndexs []int
 	maxLen := 0
 	for _, pair := range pairs {
 		num := len(pair.SearchStr)
 		if num > 0 {
 			// SearchStr must be not empty, but Action can be nil
 			validPairs = append(validPairs, pair)
+
+			tables = append(tables, buildKMPTable(pair.SearchStr))
+			chunkIndexs = append(chunkIndexs, 0)
+			strIndexs = append(strIndexs, 0)
+
 			if num > maxLen {
 				maxLen = num
 			}
@@ -260,49 +236,45 @@ func doExpectMulti(pairs []ExpectPair, buf *buffer) error {
 	}
 	chunk := make([]byte, maxLen*2)
 
-	validNum := len(validPairs)
-	tables := make([][]int, validNum)
-	chunkIndexs := make([]int, validNum)
-	strIndexs := make([]int, validNum)
-
 	for {
 		n, err := buf.read(chunk)
+		if n <= 0 {
+			return err
+		}
 
 		for i, pair := range validPairs {
 			searchStr := pair.SearchStr
 			num := len(pair.SearchStr)
-			tables[i] = buildKMPTable(searchStr)
-			chunkIndexs[i] = 0
-			strIndexs[i] = 0
-			for {
-				offset := chunkIndexs[i] + strIndexs[i]
-				for chunkIndexs[i]+strIndexs[i]-offset < n {
-					if searchStr[strIndexs[i]] == chunk[chunkIndexs[i]+strIndexs[i]-offset] {
-						strIndexs[i] += 1
-						if strIndexs[i] == num {
-							unreadIndex := chunkIndexs[i] + strIndexs[i] - offset
-							if unreadIndex < n {
-								buf.unread(chunk[unreadIndex:n])
-							}
-							if pair.Action != nil {
-								return pair.Action()
-							}
-							return nil
+			offset := chunkIndexs[i] + strIndexs[i]
+			for chunkIndexs[i]+strIndexs[i]-offset < n {
+				if searchStr[strIndexs[i]] == chunk[chunkIndexs[i]+strIndexs[i]-offset] {
+					strIndexs[i] += 1
+					if strIndexs[i] == num {
+						unreadIndex := chunkIndexs[i] + strIndexs[i] - offset
+						if unreadIndex < n {
+							buf.unread(chunk[unreadIndex:n])
 						}
+						if pair.Action != nil {
+							cache.Write(chunk[:unreadIndex])
+							return pair.Action(cache.Bytes())
+						}
+						return nil
+					}
+				} else {
+					chunkIndexs[i] += strIndexs[i] - tables[i][strIndexs[i]]
+					if tables[i][strIndexs[i]] > -1 {
+						strIndexs[i] = tables[i][strIndexs[i]]
 					} else {
-						chunkIndexs[i] += strIndexs[i] - tables[i][strIndexs[i]]
-						if tables[i][strIndexs[i]] > -1 {
-							strIndexs[i] = tables[i][strIndexs[i]]
-						} else {
-							strIndexs[i] = 0
-						}
+						strIndexs[i] = 0
 					}
 				}
-				if err != nil {
-					return err
-				}
+			}
+			if err != nil {
+				return err
 			}
 		}
+
+		cache.Write(chunk)
 	}
 }
 

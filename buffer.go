@@ -20,8 +20,8 @@ func (b *buffer) read(chunk []byte) (int, error) {
 	if b.cache.Len() > 0 {
 		n, _ := b.cache.Read(chunk)
 		if b.debug {
-			fmt.Printf("\x1b[36;1mREAD:|>%s<|\x1b[0m\r\n", string(chunk[:n]))
-			fmt.Printf("\x1b[36;1mREAD:|>%v<|\x1b[0m\r\n", chunk[:n])
+			fmt.Printf("\x1b[36;1mREADCACHE:|>%s<|\x1b[0m\r\n", string(chunk[:n]))
+			fmt.Printf("\x1b[36;1mREADCACHE:|>%v<|\x1b[0m\r\n", chunk[:n])
 		}
 		return n, nil
 	}
@@ -35,8 +35,8 @@ func (b *buffer) read(chunk []byte) (int, error) {
 		}
 	}
 	if b.debug {
-		fmt.Printf("\x1b[34;1m|>%s<|\x1b[0m\r\n", string(chunk[:n]))
-		fmt.Printf("\x1b[34;1m|>%v<|\x1b[0m\r\n", chunk[:n])
+		fmt.Printf("\x1b[34;1mREADFILE:|>%s<|\x1b[0m\r\n", string(chunk[:n]))
+		fmt.Printf("\x1b[34;1mREADFILE:|>%v<|\x1b[0m\r\n", chunk[:n])
 		f, err := os.OpenFile("/tmp/expect_stream_data",
 			os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
