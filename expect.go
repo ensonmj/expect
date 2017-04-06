@@ -366,9 +366,15 @@ func makeRaw(fd uintptr) (*syscall.Termios, error) {
 		return nil, err
 	}
 
+	// copy from my_cfmakeraw of zssh
 	newState := oldState
-	newState.Iflag &^= syscall.ISTRIP | syscall.INLCR | syscall.ICRNL | syscall.IGNCR | syscall.IXON | syscall.IXOFF
-	newState.Lflag &^= syscall.ECHO | syscall.ICANON | syscall.ISIG
+	newState.Iflag &^= syscall.IGNBRK | syscall.BRKINT | syscall.PARMRK | syscall.ISTRIP | syscall.INLCR | syscall.IGNCR | syscall.ICRNL | syscall.IXON
+	newState.Oflag &^= syscall.OPOST
+	newState.Lflag &^= syscall.ECHO | syscall.ECHONL | syscall.ICANON | syscall.ISIG | syscall.IEXTEN
+	newState.Cflag &^= syscall.CSIZE | syscall.PARENB
+	newState.Cflag |= syscall.CS8
+	newState.Cc[syscall.VMIN] = 1
+	newState.Cc[syscall.VTIME] = 0
 
 	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, fd, syscall.TCSETS,
 		uintptr(unsafe.Pointer(&newState)), 0, 0, 0); err != 0 {
