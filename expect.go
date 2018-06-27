@@ -13,6 +13,7 @@ import (
 
 	shell "github.com/kballard/go-shellquote"
 	"github.com/kr/pty"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 type ExpectSubproc struct {
@@ -80,9 +81,12 @@ func (e *ExpectSubproc) Wait() error {
 }
 
 func (e *ExpectSubproc) Interact() {
-	if oldState, err := makeRaw(uintptr(syscall.Stdin)); err != nil {
-		defer restore(uintptr(syscall.Stdin), oldState)
+	// Set stdin in raw mode.
+	oldState, err := terminal.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		panic(err)
 	}
+	defer terminal.Restore(int(os.Stdin.Fd()), oldState)
 
 	defer e.cmd.Wait()
 	io.Copy(os.Stdout, &e.buf.cache)
@@ -357,35 +361,4 @@ func (e *ExpectSubproc) SetWinsize(height, width uint16) error {
 		return errno
 	}
 	return nil
-}
-
-func makeRaw(fd uintptr) (*syscall.Termios, error) {
-	var oldState syscall.Termios
-	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, fd, syscall.TCGETS,
-		uintptr(unsafe.Pointer(&oldState)), 0, 0, 0); err != 0 {
-		return nil, err
-	}
-
-	// copy from my_cfmakeraw of zssh
-	newState := oldState
-	newState.Iflag &^= syscall.IGNBRK | syscall.BRKINT | syscall.PARMRK | syscall.ISTRIP | syscall.INLCR | syscall.IGNCR | syscall.ICRNL | syscall.IXON
-	newState.Oflag &^= syscall.OPOST
-	newState.Lflag &^= syscall.ECHO | syscall.ECHONL | syscall.ICANON | syscall.ISIG | syscall.IEXTEN
-	newState.Cflag &^= syscall.CSIZE | syscall.PARENB
-	newState.Cflag |= syscall.CS8
-	newState.Cc[syscall.VMIN] = 1
-	newState.Cc[syscall.VTIME] = 0
-
-	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, fd, syscall.TCSETS,
-		uintptr(unsafe.Pointer(&newState)), 0, 0, 0); err != 0 {
-		return nil, err
-	}
-
-	return &oldState, nil
-}
-
-func restore(fd uintptr, state *syscall.Termios) error {
-	_, _, err := syscall.Syscall6(syscall.SYS_IOCTL, fd, syscall.TCSETS,
-		uintptr(unsafe.Pointer(&state)), 0, 0, 0)
-	return err
 }
