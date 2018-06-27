@@ -57,13 +57,13 @@ func (e *ExpectSubproc) Start() error {
 	e.buf.file = f
 
 	// Set pty size
-	pty.InheritSize(os.Stdin, e.ptm)
+	pty.InheritSize(os.Stdin, f)
 	// Auto adjust pty size
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGWINCH)
 	go func() {
 		for range ch {
-			pty.InheritSize(os.Stdin, e.ptm)
+			pty.InheritSize(os.Stdin, f)
 		}
 	}()
 
