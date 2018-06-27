@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
 	"syscall"
 	"unsafe"
@@ -54,6 +55,17 @@ func (e *ExpectSubproc) Start() error {
 		return err
 	}
 	e.buf.file = f
+
+	// Set pty size
+	pty.InheritSize(os.Stdin, e.ptm)
+	// Auto adjust pty size
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGWINCH)
+	go func() {
+		for range ch {
+			pty.InheritSize(os.Stdin, e.ptm)
+		}
+	}()
 
 	return nil
 }
