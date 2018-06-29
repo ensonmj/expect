@@ -3,14 +3,12 @@ package expect
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"regexp"
 	"syscall"
-	"unsafe"
 
 	shell "github.com/kballard/go-shellquote"
 	"github.com/kr/pty"
@@ -343,34 +341,4 @@ func (e *ExpectSubproc) ExpectMatch(regex string) (bool, error) {
 
 func (e *ExpectSubproc) Debug(open bool) {
 	e.buf.debug = open
-}
-
-type winsize struct {
-	Height uint16
-	Width  uint16
-	xpixel uint16 //unused
-	ypixel uint16 //unused
-}
-
-func (e *ExpectSubproc) GetWinsize() (uint16, uint16, error) {
-	ws := &winsize{}
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL,
-		uintptr(syscall.Stdin),
-		uintptr(syscall.TIOCGWINSZ),
-		uintptr(unsafe.Pointer(ws))); errno != 0 {
-		return 0, 0, errno
-	}
-	return ws.Height, ws.Width, nil
-}
-
-func (e *ExpectSubproc) SetWinsize(height, width uint16) error {
-	ws := &winsize{Height: height, Width: width}
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL,
-		e.buf.file.Fd(),
-		uintptr(syscall.TIOCSWINSZ),
-		uintptr(unsafe.Pointer(ws))); errno != 0 {
-		fmt.Println(errno)
-		return errno
-	}
-	return nil
 }
