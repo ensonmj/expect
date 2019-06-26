@@ -1,0 +1,8 @@
+relay = ""
+relayUser= ""
+relayPass=""
+
+
+[Hosts]
+dev = {HostName="", User="", Pass="", Opt=""}
+test = {HostName="", User="", Pass="", Opt=""}
