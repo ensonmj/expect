@@ -3,6 +3,7 @@ package expect
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -176,7 +177,7 @@ func (e *ExpectSubproc) ExpectUser(searchStr string) error {
 func doExpect(searchStr string, buf *buffer) error {
 	num := len(searchStr)
 	if num == 0 {
-		return errors.New("search string is empty")
+		return errors.New("pattern is empty")
 	}
 
 	chunk := make([]byte, num*2)
@@ -217,6 +218,7 @@ type ExpectPair struct {
 	Action    func(data []byte) error
 }
 
+// ExpectMulti test all patterns in sequence and do something according to the first matched pattern
 func (e *ExpectSubproc) ExpectMulti(pairs []ExpectPair) error {
 	return doExpectMulti(pairs, e.buf)
 }
@@ -228,27 +230,26 @@ func (e *ExpectSubproc) ExpectMultiUser(pairs []ExpectPair) error {
 
 func doExpectMulti(pairs []ExpectPair, buf *buffer) error {
 	var cache bytes.Buffer
-	var validPairs []ExpectPair
 	var tables [][]int
 	var chunkIndexs []int
 	var strIndexs []int
 	maxLen := 0
-	for _, pair := range pairs {
+	for i, pair := range pairs {
 		num := len(pair.SearchStr)
-		if num > 0 {
+		if num <= 0 {
 			// SearchStr must be not empty, but Action can be nil
-			validPairs = append(validPairs, pair)
-
-			tables = append(tables, buildKMPTable(pair.SearchStr))
-			chunkIndexs = append(chunkIndexs, 0)
-			strIndexs = append(strIndexs, 0)
-
-			if num > maxLen {
-				maxLen = num
-			}
+			return errors.New(fmt.Sprintf("the %dth pattern is empty", i))
 		}
+
+		if num > maxLen {
+			maxLen = num
+		}
+
+		tables = append(tables, buildKMPTable(pair.SearchStr))
+		chunkIndexs = append(chunkIndexs, 0)
+		strIndexs = append(strIndexs, 0)
 	}
-	chunk := make([]byte, maxLen*2)
+	chunk := make([]byte, maxLen)
 
 	for {
 		n, err := buf.read(chunk)
@@ -256,11 +257,12 @@ func doExpectMulti(pairs []ExpectPair, buf *buffer) error {
 			return err
 		}
 
-		for i, pair := range validPairs {
+		for i, pair := range pairs {
 			searchStr := pair.SearchStr
-			num := len(pair.SearchStr)
+			num := len(searchStr)
 			offset := chunkIndexs[i] + strIndexs[i]
 			for chunkIndexs[i]+strIndexs[i]-offset < n {
+				fmt.Println(i, offset, n, chunkIndexs[i], strIndexs[i], strIndexs, len(chunk))
 				if searchStr[strIndexs[i]] == chunk[chunkIndexs[i]+strIndexs[i]-offset] {
 					strIndexs[i] += 1
 					if strIndexs[i] == num {
@@ -268,11 +270,11 @@ func doExpectMulti(pairs []ExpectPair, buf *buffer) error {
 						if unreadIndex < n {
 							buf.unread(chunk[unreadIndex:n])
 						}
-						if pair.Action != nil {
-							cache.Write(chunk[:unreadIndex])
-							return pair.Action(cache.Bytes())
+						if pair.Action == nil {
+							return nil
 						}
-						return nil
+						cache.Write(chunk[:unreadIndex])
+						return pair.Action(cache.Bytes())
 					}
 				} else {
 					chunkIndexs[i] += strIndexs[i] - tables[i][strIndexs[i]]
@@ -283,11 +285,11 @@ func doExpectMulti(pairs []ExpectPair, buf *buffer) error {
 					}
 				}
 			}
-			if err != nil {
-				return err
-			}
 		}
 
+		if err != nil {
+			return err
+		}
 		cache.Write(chunk)
 	}
 }
