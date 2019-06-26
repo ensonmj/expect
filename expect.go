@@ -262,7 +262,6 @@ func doExpectMulti(pairs []ExpectPair, buf *buffer) error {
 			num := len(searchStr)
 			offset := chunkIndexs[i] + strIndexs[i]
 			for chunkIndexs[i]+strIndexs[i]-offset < n {
-				fmt.Println(i, offset, n, chunkIndexs[i], strIndexs[i], strIndexs, len(chunk))
 				if searchStr[strIndexs[i]] == chunk[chunkIndexs[i]+strIndexs[i]-offset] {
 					strIndexs[i] += 1
 					if strIndexs[i] == num {

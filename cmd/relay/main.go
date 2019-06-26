@@ -57,31 +57,41 @@ func main() {
 		child.Debug(true)
 	}
 
-	err = child.Expect("password")
-	if err != nil {
-		errExit(err)
-	}
-	err = expect.WithoutEcho(func() error {
-		pass := conf.RelayPass
-		if pass == "" {
-			err := child.SendLineUser("\nPlease enter your password:")
+	pairs := []expect.ExpectPair{
+		{"password", func(_ []byte) error {
+			err := expect.WithoutEcho(func() error {
+				pass := conf.RelayPass
+				if pass == "" {
+					err := child.SendLineUser("\nPlease enter your password:")
+					if err != nil {
+						return err
+					}
+					pass, err = child.ReadLineUser()
+					if err != nil {
+						return err
+					}
+				}
+				return child.SendLine(pass)
+			})
 			if err != nil {
 				return err
 			}
-			pass, err = child.ReadLineUser()
+			err = child.SendLineUser("Checking password...")
 			if err != nil {
 				return err
 			}
-		}
-		return child.SendLine(pass)
-	})
-	if err != nil {
-		errExit(err)
-	}
-	child.SendLineUser("Check password...")
 
-	child.Expect("bash-baidu-ssl$")
-	err = loginOrRun(child, host, remoteCmd)
+			err = child.Expect("bash-baidu-ssl$")
+			if err != nil {
+				return err
+			}
+			return loginOrRun(child, host, remoteCmd)
+		}},
+		{"bash-baidu-ssl$", func(_ []byte) error {
+			return loginOrRun(child, host, remoteCmd)
+		}},
+	}
+	err = child.ExpectMulti(pairs)
 	if err != nil {
 		errExit(err)
 	}
