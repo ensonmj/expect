@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 
 	"github.com/BurntSushi/toml"
@@ -41,12 +42,35 @@ func main() {
 	}
 
 	flag.Parse()
-	abbr := flag.Arg(0)
-	remoteCmd := flag.Arg(1)
-	host, ok := conf.Hosts[abbr]
+
+	abbrOrURL := flag.Arg(0)
+	host, ok := conf.Hosts[abbrOrURL]
 	if !ok {
-		errExit(fmt.Errorf("can't find %s\n from config", abbr))
+		u, err := url.Parse(abbrOrURL)
+		if err != nil {
+			errExit(err)
+		}
+		hostName := u.Hostname()
+		user := u.User.Username()
+		pass, _ := u.User.Password()
+		var opt string
+		if u.Scheme != "" {
+			opt = "--" + u.Scheme
+		} else {
+			q, err := url.ParseQuery(u.RawQuery)
+			if err != nil {
+				errExit(err)
+			}
+			opt = q["opt"][0]
+		}
+		host = Host{
+			HostName: hostName,
+			User:     user,
+			Pass:     pass,
+			Opt:      opt,
+		}
 	}
+	remoteCmd := flag.Arg(1)
 
 	cmd := fmt.Sprintf("zssh -t %s@%s", conf.RelayUser, conf.Relay)
 	child, err := expect.Spawn(cmd)
