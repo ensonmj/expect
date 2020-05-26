@@ -43,31 +43,36 @@ func main() {
 
 	flag.Parse()
 
+	var host Host
+
 	abbrOrURL := flag.Arg(0)
-	host, ok := conf.Hosts[abbrOrURL]
-	if !ok {
-		u, err := url.Parse(abbrOrURL)
-		if err != nil {
-			errExit(err)
-		}
-		hostName := u.Hostname()
-		user := u.User.Username()
-		pass, _ := u.User.Password()
-		var opt string
-		if u.Scheme != "" {
-			opt = "--" + u.Scheme
-		} else {
-			q, err := url.ParseQuery(u.RawQuery)
+	if abbrOrURL != "" {
+		var ok bool
+		host, ok = conf.Hosts[abbrOrURL]
+		if !ok {
+			u, err := url.Parse(abbrOrURL)
 			if err != nil {
 				errExit(err)
 			}
-			opt = q["opt"][0]
-		}
-		host = Host{
-			HostName: hostName,
-			User:     user,
-			Pass:     pass,
-			Opt:      opt,
+			hostName := u.Hostname()
+			user := u.User.Username()
+			pass, _ := u.User.Password()
+			var opt string
+			if u.Scheme != "" {
+				opt = "--" + u.Scheme
+			} else {
+				q, err := url.ParseQuery(u.RawQuery)
+				if err != nil {
+					errExit(err)
+				}
+				opt = q["opt"][0]
+			}
+			host = Host{
+				HostName: hostName,
+				User:     user,
+				Pass:     pass,
+				Opt:      opt,
+			}
 		}
 	}
 	remoteCmd := flag.Arg(1)
@@ -79,6 +84,10 @@ func main() {
 	}
 	if fVerbose {
 		child.Debug(true)
+	}
+	if abbrOrURL == "" {
+		child.Interact()
+		return
 	}
 
 	pairs := []expect.ExpectPair{
