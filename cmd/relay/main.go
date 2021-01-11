@@ -77,7 +77,7 @@ func main() {
 	}
 	remoteCmd := flag.Arg(1)
 
-	cmd := fmt.Sprintf("zssh -t %s@%s", conf.RelayUser, conf.Relay)
+	cmd := fmt.Sprintf("ssh -t %s@%s", conf.RelayUser, conf.Relay)
 	child, err := expect.Spawn(cmd)
 	if err != nil {
 		errExit(err)
@@ -91,7 +91,7 @@ func main() {
 	}
 
 	pairs := []expect.ExpectPair{
-		{"password", func(_ []byte) error {
+		{"password:", func(_ []byte) error {
 			err := expect.WithoutEcho(func() error {
 				pass := conf.RelayPass
 				if pass == "" {
